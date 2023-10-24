@@ -100,6 +100,7 @@ write.csv(dt.shadestore_zips,file = "C:/Users/wgeyer/OneDrive - Mars & Co Consul
 # Gruber from download
 page <- read_html("C:/Users/wgeyer/OneDrive - Mars & Co Consulting LLC/Desktop/test.html")
 page <- read_html("C:/Users/wgeyer/Downloads/30328 & 80550.txt")
+page <- read_html("C:/Users/wgeyer/Downloads/01701 - 53005.txt")
 list.loc = page %>% html_nodes(".dealer-card--content") %>% html_text() %>% str_split(pattern="\r\n")
 rbindlist(lapply(1:length(list.loc),function(i) {
   v.cur = list.loc[[i]] %>% gsub(pattern=" ",replacement="")
