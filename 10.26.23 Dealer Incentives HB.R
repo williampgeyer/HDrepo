@@ -249,26 +249,34 @@ dt.dealers_costfactor_groupings[, Booking_Growth := (Booking_2023 / Booking_2022
 
 #### Grouping Growth and HD Size ####
 dt.dealers_costfactor_groupings[,Booking_Growth_Group := fn.cut2_wtd(Booking_Growth,Pop_2021,3)]
-summary(dt.dealers_costfactor_groupings$Booking_Growth_Group)
+summary(dt.dealers_costfactor_groupings$Booking_Growth)
 dt.dealers_costfactor_groupings[Booking_Growth_Group == "[-1.00e+00,-3.84e-01)", Booking_Growth_Group := "Low"][Booking_Growth_Group == "[-3.84e-01, 3.60e-01)", Booking_Growth_Group := "Medium"][Booking_Growth_Group == "[ 3.60e-01, 4.83e-01)", Booking_Growth_Group := "High"][Booking_Growth_Group == "[ 4.83e-01, 2.52e+18]", Booking_Growth_Group := "High"]
 
 dt.dealers_costfactor_groupings[,Booking_Size_Group := fn.cut2_wtd(Booking_2023,Pop_2021,3)]
 summary(dt.dealers_costfactor_groupings$Booking_Size_Group)
 dt.dealers_costfactor_groupings[Booking_Size_Group == "[8.88e-16,1.36e+03)", Booking_Size_Group := "Low"][Booking_Size_Group == "[1.36e+03,6.14e+03)", Booking_Size_Group := "Medium"][Booking_Size_Group == "[6.14e+03,7.08e+03)", Booking_Size_Group := "High"][Booking_Size_Group == "[7.08e+03,2.46e+07]", Booking_Size_Group := "High"]
 
-## Output ##
-dt.std_dev_CF_Index = dt.dealers_costfactor_groupings[,list(Purchase_Zip,Store_Name,Product_Lvl4,Cost_Factor,CF_Index,Grouping,home_value_group,Booking_Growth_Group,Booking_Size_Group)]
+#### Output ####
+dt.std_dev_CF_Index = dt.dealers_costfactor_groupings[,list(Purchase_Zip,Store_Name,Product_Lvl4,Cost_Factor,CF_Index,Booking_2023,MSRP_23,Grouping,home_value_group,Booking_Growth_Group,Booking_Size_Group)]
+
+## eliminate the NA's and the Infinite's
+dt.std_dev_CF_Index_quick_example = dt.std_dev_CF_Index[home_value_group == "Medium" & Grouping == "Sub_Urban"]
+dt.std_dev_CF_Index_quick_example = dt.std_dev_CF_Index_quick_example[complete.cases(CF_Index)]
+dt.std_dev_CF_Index_quick_example = dt.std_dev_CF_Index_quick_example[is.finite(CF_Index)]
+dt.std_dev_CF_Index_quick_example_output = dt.std_dev_CF_Index_quick_example[,.(SD = sd(CF_Index)), by = .(Booking_Growth_Group,Booking_Size_Group)]
+
+dt.std_dev_CF_Index[home_value_group == "Medium" & Grouping == "Sub_Urban" & Booking_Growth_Group == "Medium" & Booking_Size_Group == "Medium"][order(CF_Index)][complete.cases(CF_Index)][is.finite(CF_Index)]
 
 
 
+dt.std_dev_CF_Index = dt.std_dev_CF_Index[is.finite(CF_Index)]
+dt.std_dev_CF_Index = dt.std_dev_CF_Index[complete.cases(CF_Index)]
+## Throwing out any Dealers where the index is > 2 ##
+dt.std_dev_CF_Index_subset = dt.std_dev_CF_Index[CF_Index < 2]
+dt.full_sd_output = dt.std_dev_CF_Index_subset[,.(SD = sd(CF_Index)), by = .(Grouping, home_value_group,Booking_Growth_Group,Booking_Size_Group)]
+summary(dt.std_dev_CF_Index)
 
-
-
-
-
-
-
-
+write.csv(dt.full_sd_output,"C:/Users/hbelton/OneDrive - Mars & Co Consulting LLC/Documents/Hunter Douglas/Tableau Overall Metrics/10.26.23 full_sd_output.csv")
 
 
 
