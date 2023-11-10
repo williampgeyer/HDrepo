@@ -870,6 +870,74 @@ ggplot(mapping=aes(rank,fit/1E6)) + geom_point(data=dt.fit_scatter[type!="actual
 dt.fit_scatter[,list(MAPE=mean(abs(fit-actual)/actual)),by=type]
 
 
+# Chapter 7: Bolt on -- TTM Permits March 2023 ----------------------------
+
+dt.TTM.Permits = rbind(fread("https://www2.census.gov/econ/bps/County/co2303y.txt"), 
+             fread("https://www2.census.gov/econ/bps/County/co2212c.txt"), 
+             fread("https://www2.census.gov/econ/bps/County/co2211c.txt"), 
+             fread("https://www2.census.gov/econ/bps/County/co2210c.txt"), 
+             fread("https://www2.census.gov/econ/bps/County/co2209c.txt"), 
+             fread("https://www2.census.gov/econ/bps/County/co2208c.txt"), 
+             fread("https://www2.census.gov/econ/bps/County/co2207c.txt"), 
+             fread("https://www2.census.gov/econ/bps/County/co2206c.txt"), 
+             fread("https://www2.census.gov/econ/bps/County/co2205c.txt"), 
+             fread("https://www2.census.gov/econ/bps/County/co2204c.txt"))
+
+dt.TTM.Permits = dt.TTM.Permits[, list(SFH_Units = V8), 
+                                by = list(State = sprintf("%02d", V2), 
+                                          County = sprintf("%03d", V3), 
+                                          Date = V1)][, FIPS := paste0(State, County)]
+
+#check work
+dt.TTM.Permits[, list(Units = sum(SFH_Units)), by = Date] 
+
+#allocate to zips
+
+dt.TTM.Permits = dt.TTM.Permits[, list(Units = sum(SFH_Units, na.rm = T)), by = FIPS]
+
+#Start with a map of FIPS by ZIP -- note not 1:1
+dt.zips.by.fips.nhs.march.TTM = data.table(zcta_crosswalk)
+dt.zips.by.fips.nhs.march.TTM = dt.zips.by.fips.nhs.march.TTM[, list(county_fips, zcta)][order(county_fips)]
+
+#pull in ZIP level population data
+dt.zips.by.fips.nhs.march.TTM = merge(x = dt.zips.by.fips.nhs.march.TTM, y = census_data_21[, list(ZCTA, Population)], by.x = c("zcta"), by.y = c("ZCTA"))
+
+#now pull in FIP level permits
+
+dt.zips.by.fips.nhs.march.TTM = merge(x = dt.zips.by.fips.nhs.march.TTM, y = dt.TTM.Permits, by.x = c("county_fips"), by.y = c("FIPS"))
+
+dt.zips.by.fips.nhs.march.TTM = dt.zips.by.fips.nhs.march.TTM[order(county_fips)]
+
+#now we need to allocate by population mix
+
+dt.zips.by.fips.nhs.march.TTM[, Pop_mix := Population / sum(Population), by = list(county_fips)]
+dt.zips.by.fips.nhs.march.TTM[, Units_allocated := Units * Pop_mix]
+
+#now sum by zip to get rid of duplicates
+
+dt.zips.by.fips.nhs.march.TTM = dt.zips.by.fips.nhs.march.TTM[, list(Building_Permits_march_TTM = sum(Units_allocated, na.rm = T)), by = list(zcta)]
+
+dt.zips.by.fips.nhs.march.TTM[, sum(Building_Permits_march_TTM)]
+
+#now we need to aggregate to market level
+
+dt.permit.market = copy(dt.dealer_mkt_mapping)
+
+#Convert market zips to zcta
+
+dt.permit.market = merge(x = dt.permit.market, y = dt.zips.to.zcta, by.x = c("mktzip"), by.y = c("Zip.Code"))
+
+#now take down to zcta level to avoid double counting
+
+dt.permit.market = dt.permit.market[, list(purchasezip), by = list(mkt_zcta = ZCTA)] %>% unique() %>% .[order(purchasezip)]
+
+#merge on permits
+
+dt.permit.market = merge(x = dt.permit.market, y = dt.zips.by.fips.nhs.march.TTM, by.x = c("mkt_zcta"), by.y = c("zcta")) %>% .[order(purchasezip, mkt_zcta)]
+
+dt.permit.market = dt.permit.market[, list(Building_Permits_march_TTM = sum(Building_Permits_march_TTM, na.rm = T)), by = list(purchasezip)]
+
+
 # Dealer Performance Summary ----------------------------------------------
 
 
@@ -883,7 +951,10 @@ new_col_names <- paste0("mkt_", old_col_names)
 
 setnames(dt.level2, old_col_names, new_col_names)
 
-dt.hd_perf = merge(x = dt.hd_perf, y = dt.level2, by.x = c("purchasezip"), by.y = c("mkt_purchasezip"))
+dt.hd_perf = merge(x = dt.hd_perf, y = dt.level2, by.x = c("purchasezip"), by.y = c("mkt_purchasezip")) %>% 
+  merge(y = dt.permit.market, by = c("purchasezip"))
+
+
 
 dt.hd_perf = dt.hd_perf[order(purchasezip)]
 
