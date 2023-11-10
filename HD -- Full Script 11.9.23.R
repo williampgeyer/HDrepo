@@ -488,7 +488,8 @@ dt.class = dt.density.pareto[, list(ZCTA = ZCTA5CE20, Grouping)]
 dt.unified.11.2 = rbind(census_data_21, census_data_20) %>% 
   merge(y = dt.zips.by.fips, by.x = c("ZCTA"), by.y = c("zcta"), all.x = T) %>% #cost of living only at zcta, not year
   merge(y = rbind(dt.zips.by.fips.nhs.21, dt.zips.by.fips.nhs.20), by.x = c("ZCTA", "Year"), by.y = c("zcta", "Year"), all.x = T) %>% #at year/zcta level
-  merge(y = dt.class,  by = c("ZCTA"), all.x = T)
+  merge(y = dt.class,  by = c("ZCTA"), all.x = T) %>% 
+  merge(y = dt.density.pareto[, list(ZCTA = ZCTA5CE20, area_sqmi)], by = c("ZCTA"), all.x = T)
 
 dt.unified.11.2 = dt.unified.11.2[order(ZCTA, Year)]
 
@@ -508,11 +509,7 @@ dt.zips.to.zcta[, ZCTA := sprintf("%05d", ZCTA)]
 dt.unified.11.2 = merge(x = dt.zips.to.zcta[, list(Zip.Code, ZCTA)] %>% unique(), y = dt.unified.11.2, by = c("ZCTA"))
 
 
-
 # Chapter 2: Defining Dealer Markets --------------------------------------
-
-
-
 # Libraries and Functions -------------------------------------------------
 library(readxl)
 
@@ -661,7 +658,8 @@ dt.dealer.markets.use = dt.dealer.markets.use[, list(Median_Age_Total,
                                                      Building_Permits, 
                                                      Discretionary_Income, 
                                                      Zips_included = .N, 
-                                                     HH_greater_100k), 
+                                                     HH_greater_100k, 
+                                                     area_sqmi), 
                                               by = list(purchasezip, ZCTA, Year)] %>% unique()
 
 dt.dealer.markets.use = dt.dealer.markets.use[order(purchasezip)]
@@ -696,7 +694,8 @@ dt.dealer.markets.use = dt.dealer.markets.use[, list(Median_Age_Total = sum(Medi
                                                      Cost_of_living = sum(Cost_of_living*Households, na.rm = T) / sum(Households, na.rm = T), #weight by households
                                                      Building_Permits = sum(Building_Permits, na.rm = T), 
                                                      Zips_included = sum(Zips_included, na.rm = T), 
-                                                     HH_greater_100k = sum(HH_greater_100k, na.rm = T)), #just sum
+                                                     HH_greater_100k = sum(HH_greater_100k, na.rm = T), 
+                                                     area_sqmi = sum(area_sqmi, na.rm = T)), #just sum
                                               by = list(purchasezip, Year)] %>% unique()
 
 dt.dealer.markets.use = unique(dt.dealer.markets.use)
@@ -708,13 +707,6 @@ dt.dealer.markets.use[Cost_of_living > 0 , Discretionary_income := Median_Househ
 dt.dealer.markets.use = merge(x = dt.dealer.markets.use, y = dt.unified.11.2[, list(Zip.Code, Grouping)] %>% unique(), by.x = c("purchasezip"), by.y = c("Zip.Code"))
 
 
-
-
-
-
-
-
-
 # Chapter 4: Merge Internal and External Data -----------------------------
 
 dt.ext = copy(dt.dealer.markets.use)
@@ -723,7 +715,7 @@ dt.ext_level = dt.ext[Year==2021,list(purchasezip,Median_Household_Income,
                                       Own_vs_rent_own,Own_perc=Own_vs_rent_own/Own_vs_rent_Total,
                                       Total_rooms=Median_Rooms*Households,Single_family_Units,
                                       Median_census_home_value,Households,HH_greater_100k,Migration_Outflow=Migration_Total-Migration_No_Change,Building_Permits,
-                                      Discretionary_income,Grouping)] %>% 
+                                      Discretionary_income,Grouping, area_sqmi)] %>% 
   merge(dt.ext[,list(purchasezip,Year,Population)][order(purchasezip,Year)][,pop_growth := Population - lag(Population),by=list(purchasezip)][Year==2021][,Year:=NULL],by=c("purchasezip"))
 
 dt.ext_level[,Migration_Inflow := pop_growth + Migration_Outflow]
@@ -935,14 +927,13 @@ dt.permit.market = dt.permit.market[, list(purchasezip), by = list(mkt_zcta = ZC
 
 dt.permit.market = merge(x = dt.permit.market, y = dt.zips.by.fips.nhs.march.TTM, by.x = c("mkt_zcta"), by.y = c("zcta")) %>% .[order(purchasezip, mkt_zcta)]
 
-dt.permit.market = dt.permit.market[, list(Building_Permits_march_TTM = sum(Building_Permits_march_TTM, na.rm = T)), by = list(purchasezip)]
+dt.permit.market = dt.permit.market[, list(mkt_Building_Permits_march_TTM = sum(Building_Permits_march_TTM, na.rm = T)), by = list(purchasezip)]
 
 
-# Dealer Performance Summary ----------------------------------------------
+# Chapter 8: Dealer Performance Summary ----------------------------------------------
 
-
-dt.hd_perf = dcast.data.table(dt.hd2[year %in% c("2022_PTM","2023_TTM"),
-                                     list(storename,purchasezip,brand,alliance,alliance_num,bookingamt,year)],formula = storename+purchasezip+brand+alliance+alliance_num~year,value.var = "bookingamt",fun.aggregate = sum)[is.na(`2022_PTM`),`2022_PTM` := 0][is.na(`2023_TTM`),`2023_TTM` := 0][`2022_PTM` > 0][nchar(purchasezip)==5]
+dt.hd_perf = dcast.data.table(dt.hd2[year %in% c("2022_PTM","2023_TTM"),list(storename,purchasezip,brand,bookingamt,year)],formula = storename+purchasezip+brand~year,value.var = "bookingamt",fun.aggregate = sum)[is.na(`2022_PTM`),`2022_PTM` := 0][is.na(`2023_TTM`),`2023_TTM` := 0][`2022_PTM` > 0][nchar(purchasezip)==5] %>% 
+  merge(dt.hd2[year == "2022_PTM",list(bookingamt=sum(bookingamt)),by=list(storename,brand,alliance,alliance_num)][order(storename,-bookingamt)][,.SD[1],by=list(storename,brand)],by=c("storename","brand"))
 
 #merge on market summary
 
@@ -952,12 +943,14 @@ new_col_names <- paste0("mkt_", old_col_names)
 setnames(dt.level2, old_col_names, new_col_names)
 
 dt.hd_perf = merge(x = dt.hd_perf, y = dt.level2, by.x = c("purchasezip"), by.y = c("mkt_purchasezip")) %>% 
-  merge(y = dt.permit.market, by = c("purchasezip"))
+  merge(y = dt.permit.market, by = c("purchasezip")) #march TTM purchase permits
 
 
 
 dt.hd_perf = dt.hd_perf[order(purchasezip)]
 
+# Exporting Script --------------------------------------------------------
 
+write.csv(dt.hd_perf,"./Dealer Rollup 11.10.23v1.csv")
 
 
