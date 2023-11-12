@@ -930,7 +930,143 @@ dt.permit.market = merge(x = dt.permit.market, y = dt.zips.by.fips.nhs.march.TTM
 dt.permit.market = dt.permit.market[, list(mkt_Building_Permits_march_TTM = sum(Building_Permits_march_TTM, na.rm = T)), by = list(purchasezip)]
 
 
-# Chapter 8: Dealer Performance Summary ----------------------------------------------
+# Chapter 8: Realtor.com inclusion ----------------------------------------
+# Data Retrieval ----------------------------------------------------------
+
+dt.realtor.core = data.table(read.csv("./RDC_Inventory_Core_Metrics_Zip_History (1).csv"))
+dt.realtor.hotness = data.table(read.csv("./RDC_Inventory_Hotness_Metrics_Zip_History (1).csv"))
+
+#zips are causing Issues, lets convert to number then back to text
+
+dt.realtor.core[, postal_code := as.numeric(postal_code)]
+dt.realtor.hotness[, postal_code := as.numeric(postal_code)]
+
+dt.realtor.core[, postal_code := sprintf("%05d", postal_code)]
+dt.realtor.hotness[, postal_code := sprintf("%05d", postal_code)]
+
+# Analysis ----------------------------------------------------------------
+
+#since data appears to be very big lets filter out to only recent years
+
+dt.realtor.core = dt.realtor.core[month_date_yyyymm >= 202101]
+dt.realtor.hotness = dt.realtor.hotness[month_date_yyyymm  >= 202101]
+
+#we will merge tables, but first lets rename some columns
+
+old_col_names.core <- colnames(dt.realtor.core)
+new_col_names.core <- paste0("core_", old_col_names.core)
+setnames(dt.realtor.core, old_col_names.core, new_col_names.core)
+
+old_col_names.hot <- colnames(dt.realtor.hotness)
+new_col_names.hot <- paste0("hot_", old_col_names.hot)
+setnames(dt.realtor.hotness, old_col_names.hot, new_col_names.hot)
+
+
+#now lets merge tables together
+
+dt.realtor.combined = merge(x = dt.realtor.core, y = dt.realtor.hotness, 
+                            by.x = c("core_month_date_yyyymm", "core_postal_code"), 
+                            by.y = c("hot_month_date_yyyymm", "hot_postal_code"), 
+                            all = T)
+
+#now lets add our timeframe
+
+dt.realtor.combined[, time_frame := "exclude"]
+dt.realtor.combined[core_month_date_yyyymm  <= 202303 & core_month_date_yyyymm >=  202204, time_frame := "March_23_TTM"]
+dt.realtor.combined = dt.realtor.combined[time_frame == "March_23_TTM"]
+
+#Now lets aggregate all metrics to TTM level
+
+dt.realtor.combined = dt.realtor.combined[, list(Median_List_Price = median(core_median_listing_price, na.rm = T), #The median listing price within the specified geography during the specified month.
+                                                 Median_Active_Listings_SS_Daily = median(core_active_listing_count, na.rm = T), #The count of active listings within the specified geography during the specified month. The active listing count tracks the number of for sale properties on the market, excluding pending listings where a pending status is available. This is a snapshot measure of how many active listings can be expected on any given day of the specified month.
+                                                 Median_Days_on_Market = median(core_median_days_on_market, na.rm = T), #The median number of days property listings spend on the market within the specified geography during the specified month. Time spent on the market is defined as the time between the initial listing of a property and either its closing date or the date it is taken off the market.
+                                                 Median_new_Listings_SS_Weekly = median(core_new_listing_count, na.rm = T), #The count of new listings added to the market within the specified geography. The new listing count represents a typical week’s worth of new listings in a given month. The new listing count can be multiplied by the number of weeks in a month to produce a monthly new listing count.
+                                                 Median_Pendings_SS_Daily = median(core_pending_listing_count, na.rm = T), #The count of pending listings within the specified geography during the specified month, if a pending definition is available for that geography. This is a snapshot measure of how many pending listings can be expected on any given day of the specified month.
+                                                 Median_price_per_sqft = median(core_median_listing_price_per_square_foot, na.rm = T), 
+                                                 Median_sqft = median(core_median_square_feet, na.rm = T), 
+                                                 Median_Total_Listings_SS_Daily = median(core_total_listing_count, na.rm = T), #The total of both active listings and pending listings within the specified geography during the specified month. This is a snapshot measure of how many total listings can be expected on any given day of the specified month.
+                                                 Median_Nielsen_HH_rank = median(hot_nielsen_hh_rank, na.rm = T), #The specified zip code, county, or metro area’s rank by household count compared to other zip codes, counties and metro areas. A rank value of 1 is the highest by household count.
+                                                 Median_hotness_rank = median(hot_hotness_rank, na.rm = T), #The specified zip code, county, or metro area’s Hotness rank, by Hotness score, compared to all other zip codes, counties and metro areas. A rank value of 1 is considered the hottest (highest Hotness score).
+                                                 Median_hotness_Score = median(hot_hotness_score, na.rm = T), #The Hotness score is an equally-weighted composite metric of a geography’s supply score and demand score.
+                                                 Median_supply_score = median(hot_supply_score, na.rm = T), #The supply score is an index representing a zip code, county or metro’s median days on market ranking compared to other zip codes, counties, or metros.
+                                                 Median_demand_Score = median(hot_demand_score, na.rm = T), #The demand score is an index representing a zip code, county or metro’s unique listing page viewers per property ranking compared to other zip codes, counties, or metros.
+                                                 Median_ratio_views_to_US_avg = median(hot_ldp_unique_viewers_per_property_vs_us, na.rm = T)), #The count of viewers a typical property receives in the specified geography divided by the count of views a typical property receives in the US overall during the same month.
+                                          by = list(core_postal_code)]
+                                                 
+       
+#this is at zip level - to be safe, lets take down to ZCTA level
+
+dt.realtor.combined = merge(x = dt.realtor.combined, y = dt.zips.to.zcta, by.x = c("core_postal_code"), by.y = c("Zip.Code"), all.x = T)
+
+dt.realtor.combined = dt.realtor.combined[, list(Median_List_Price = median(Median_List_Price, na.rm = T), #The median listing price within the specified geography during the specified month.
+                                                 Median_Active_Listings_SS_Daily = median(Median_Active_Listings_SS_Daily, na.rm = T), #The count of active listings within the specified geography during the specified month. The active listing count tracks the number of for sale properties on the market, excluding pending listings where a pending status is available. This is a snapshot measure of how many active listings can be expected on any given day of the specified month.
+                                                 Median_Days_on_Market = median(Median_Days_on_Market, na.rm = T), #The median number of days property listings spend on the market within the specified geography during the specified month. Time spent on the market is defined as the time between the initial listing of a property and either its closing date or the date it is taken off the market.
+                                                 Median_new_Listings_SS_Weekly = median(Median_new_Listings_SS_Weekly, na.rm = T), #The count of new listings added to the market within the specified geography. The new listing count represents a typical week’s worth of new listings in a given month. The new listing count can be multiplied by the number of weeks in a month to produce a monthly new listing count.
+                                                 Median_Pendings_SS_Daily = median(Median_Pendings_SS_Daily, na.rm = T), #The count of pending listings within the specified geography during the specified month, if a pending definition is available for that geography. This is a snapshot measure of how many pending listings can be expected on any given day of the specified month.
+                                                 Median_price_per_sqft = median(Median_price_per_sqft, na.rm = T), 
+                                                 Median_sqft = median(Median_sqft, na.rm = T), 
+                                                 Median_Total_Listings_SS_Daily = median(Median_Total_Listings_SS_Daily, na.rm = T), #The total of both active listings and pending listings within the specified geography during the specified month. This is a snapshot measure of how many total listings can be expected on any given day of the specified month.
+                                                 Median_Nielsen_HH_rank = median(Median_Nielsen_HH_rank, na.rm = T), #The specified zip code, county, or metro area’s rank by household count compared to other zip codes, counties and metro areas. A rank value of 1 is the highest by household count.
+                                                 Median_hotness_rank = median(Median_hotness_rank, na.rm = T), #The specified zip code, county, or metro area’s Hotness rank, by Hotness score, compared to all other zip codes, counties and metro areas. A rank value of 1 is considered the hottest (highest Hotness score).
+                                                 Median_hotness_Score = median(Median_hotness_Score, na.rm = T), #The Hotness score is an equally-weighted composite metric of a geography’s supply score and demand score.
+                                                 Median_supply_score = median(Median_supply_score, na.rm = T), #The supply score is an index representing a zip code, county or metro’s median days on market ranking compared to other zip codes, counties, or metros.
+                                                 Median_demand_Score = median(Median_demand_Score, na.rm = T), #The demand score is an index representing a zip code, county or metro’s unique listing page viewers per property ranking compared to other zip codes, counties, or metros.
+                                                 Median_ratio_views_to_US_avg = median(Median_ratio_views_to_US_avg, na.rm = T)), #The count of viewers a typical property receives in the specified geography divided by the count of views a typical property receives in the US overall during the same month.
+                                          by = list(ZCTA)]
+
+
+#now lets bring in markets
+
+dt.realtor.dt.markets = copy(dt.markets)[dist >= 0]
+
+dt.realtor.dt.markets = merge(x = dt.realtor.dt.markets, y = dt.unified.11.2[Year == 2021, list(Zip.Code, ZCTA, households)] %>% unique(), by.x = c("mktzip"), by.y = c("Zip.Code"))
+
+#now take down to zcta level
+
+dt.realtor.dt.markets = dt.realtor.dt.markets[, list(ZCTA, households), by = purchasezip] %>% unique() %>% .[order(purchasezip)]
+
+#now merge with realtor data
+
+dt.realtor.combined = merge(x = dt.realtor.dt.markets, y = dt.realtor.combined, by.x = c("ZCTA"), by.y = c("ZCTA"))
+
+#now roll up to purchase zip level; since there are varying degrees of data completeness will do core and hotness sep
+
+dt.realtor.combined.core = dt.realtor.combined[, list(Median_List_Price, Median_Active_Listings_SS_Daily, 
+                                                      Median_Days_on_Market, Median_new_Listings_SS_Weekly, Median_Pendings_SS_Daily, Median_price_per_sqft, 
+                                                      Median_sqft, Median_Total_Listings_SS_Daily), by = list( ZCTA, purchasezip, households)]
+
+dt.realtor.combined.core = na.omit(dt.realtor.combined.core) %>% .[order(purchasezip)]
+
+dt.realtor.combined.core.summary = dt.realtor.combined.core[, list(RCOM_List_Price = sum(Median_List_Price*households) / sum(households), #WA
+                                                                   RCOM_Active_Listings_SS_Daily = sum(Median_Active_Listings_SS_Daily), #Sum
+                                                                   RCOM_Days_on_Market = sum(Median_Days_on_Market*households) / sum(households), #WA
+                                                                   RCOM_new_Listings_SS_Weekly = sum(Median_new_Listings_SS_Weekly), #Sum
+                                                                   RCOM_Pendings_SS_Daily = sum(Median_Pendings_SS_Daily), #Sum
+                                                                   RCOM_price_per_sqft = sum( Median_price_per_sqft*households) / sum(households),#WA
+                                                                   RCOM_Median_sqft = sum(Median_sqft *households) / sum(households), #WA
+                                                                   RCOM_Total_Listings_SS_Daily = sum(Median_Total_Listings_SS_Daily)),  #Sum
+                                                            by = list(purchasezip)]
+
+dt.realtor.combined.hot = dt.realtor.combined[, list(Median_hotness_rank, Median_hotness_Score, Median_supply_score, Median_demand_Score, Median_ratio_views_to_US_avg), 
+                                              by = list( ZCTA, purchasezip, households)]
+
+dt.realtor.combined.hot = na.omit(dt.realtor.combined.hot) %>% .[order(purchasezip)]
+
+dt.realtor.combined.hot.summary = dt.realtor.combined.hot[, list(RCOM_hotness_rank = sum(Median_hotness_rank*households) / sum(households),
+                                                                 RCOM_hotness_Score = sum(Median_hotness_Score*households) / sum(households),
+                                                                 RCOM_supply_score = sum(Median_supply_score*households) / sum(households),
+                                                                 RCOM_demand_Score = sum(Median_demand_Score*households) / sum(households),
+                                                                 RCOM_ratio_views_to_US_avg = sum(Median_ratio_views_to_US_avg*households) / sum(households)),
+                                                            by = list(purchasezip)]
+
+
+#now merge results together 
+
+dt.realtor.results = merge(x = dt.realtor.combined.core.summary, y = dt.realtor.combined.hot.summary, by = c("purchasezip"), all = T)
+
+
+
+# Chapter 9: Dealer Performance Summary ----------------------------------------------
 
 dt.hd_perf = dcast.data.table(dt.hd2[year %in% c("2022_PTM","2023_TTM"),list(storename,purchasezip,brand,bookingamt,year)],formula = storename+purchasezip+brand~year,value.var = "bookingamt",fun.aggregate = sum)[is.na(`2022_PTM`),`2022_PTM` := 0][is.na(`2023_TTM`),`2023_TTM` := 0][`2022_PTM` > 0][nchar(purchasezip)==5] %>% 
   merge(dt.hd2[year == "2022_PTM",list(bookingamt=sum(bookingamt)),by=list(storename,brand,alliance,alliance_num)][order(storename,-bookingamt)][,.SD[1],by=list(storename,brand)],by=c("storename","brand"))
@@ -943,14 +1079,13 @@ new_col_names <- paste0("mkt_", old_col_names)
 setnames(dt.level2, old_col_names, new_col_names)
 
 dt.hd_perf = merge(x = dt.hd_perf, y = dt.level2, by.x = c("purchasezip"), by.y = c("mkt_purchasezip")) %>% 
-  merge(y = dt.permit.market, by = c("purchasezip")) #march TTM purchase permits
-
-
+  merge(y = dt.permit.market, by = c("purchasezip")) %>% #march TTM purchase permits
+  merge(y = dt.realtor.results, by = c("purchasezip"), all.x = T)
 
 dt.hd_perf = dt.hd_perf[order(purchasezip)]
 
 # Exporting Script --------------------------------------------------------
 
-write.csv(dt.hd_perf,"./Dealer Rollup 11.10.23varea.csv")
+write.csv(dt.hd_perf,"./Dealer Rollup 11.11.23vRCOM.csv")
 
 
